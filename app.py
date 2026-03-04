@@ -3,135 +3,157 @@ import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
 import plotly.express as px
+import plotly.graph_objects as go
 
-# --- 1. CONFIGURACIÓN ELITE & MÓVIL ---
+# --- 1. CONFIGURACIÓN DE ALTO NIVEL ---
 st.set_page_config(page_title="GeZo Elite Pro", page_icon="💎", layout="wide")
 
-# Diseño CSS de alto impacto (Optimizado para iPhone y Carga Veloz)
+# Diseño "Premium Glass" y Optimización Móvil
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    /* Botones grandes para dedos */
-    .stButton>button { width: 100%; border-radius: 12px; height: 3.5em; background-color: #004a99; color: white; font-weight: bold; border: none; }
-    /* Tarjetas de Métricas */
-    div[data-testid="stMetric"] { background-color: white; padding: 15px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #eee; }
-    /* Estilo de Anuncios */
-    .anuncio-card { background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); padding: 15px; border-radius: 12px; border-left: 5px solid #1976d2; margin-bottom: 20px; }
-    /* Ocultar scrollbars laterales en móvil */
-    @media (max-width: 640px) { .stMetric { margin-bottom: 10px; } }
+    .main { background-color: #0e1117; color: white; }
+    div[data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 15px;
+        padding: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+    }
+    .stButton>button {
+        border-radius: 12px;
+        background: linear-gradient(90deg, #00c6ff 0%, #0072ff 100%);
+        color: white; font-weight: bold; border: none; height: 3.5em;
+    }
+    .prediction-box {
+        background: rgba(255, 165, 0, 0.1);
+        padding: 15px; border-radius: 12px; border-left: 5px solid orange; margin: 10px 0;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. BASE DE DATOS ---
-conn = sqlite3.connect('gezo_master_v6.db', check_same_thread=False)
+# --- 2. MOTOR DE DATOS ---
+conn = sqlite3.connect('gezo_ultimate.db', check_same_thread=False)
 c = conn.cursor()
-c.execute('CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY, nombre TEXT, clave TEXT, expira TEXT, rol TEXT, presupuesto REAL DEFAULT 200000)')
+c.execute('CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY, nombre TEXT, clave TEXT, expira TEXT, rol TEXT, presupuesto REAL DEFAULT 250000)')
 c.execute('CREATE TABLE IF NOT EXISTS movimientos (id INTEGER PRIMARY KEY, usuario_id INTEGER, fecha TEXT, desc TEXT, monto REAL, tipo TEXT, cat TEXT)')
+c.execute('CREATE TABLE IF NOT EXISTS metas (id INTEGER PRIMARY KEY, usuario_id INTEGER, nombre TEXT, objetivo REAL, actual REAL)')
 conn.commit()
 
-# --- 3. FUNCIONES DE APOYO ---
-def obtener_tc(): return {"compra": 512.45, "venta": 518.30}
+# --- 3. LOGICA INTELIGENTE ---
+def obtener_tc(): return {"venta": 518.00} # Simulación BCCR
 
-def formato_dinero(monto, ocultar=False):
-    if ocultar: return "₡ *.*"
-    return f"₡{monto:,.0f}"
-
-# --- 4. SISTEMA DE SESIÓN & PRIVACIDAD ---
 if 'autenticado' not in st.session_state: st.session_state.autenticado = False
-if 'ocultar_montos' not in st.session_state: st.session_state.ocultar_montos = False
+if 'ver_montos' not in st.session_state: st.session_state.ver_montos = True
 
+# --- 4. ACCESO ---
 if not st.session_state.autenticado:
-    st.title("🚀 GeZo Elite Pro")
+    st.title("💎 GeZo Elite Pro")
+    st.subheader("La evolución de tus finanzas")
     with st.form("login"):
         u = st.text_input("Usuario")
         p = st.text_input("Contraseña", type="password")
-        if st.form_submit_button("INGRESAR"):
-            c.execute("SELECT id, nombre, rol, expira, presupuesto FROM usuarios WHERE nombre=? AND clave=?", (u, p))
+        if st.form_submit_button("INICIAR SESIÓN ELITE"):
+            c.execute("SELECT id, nombre, rol, presupuesto FROM usuarios WHERE nombre=? AND clave=?", (u, p))
             res = c.fetchone()
             if res:
-                st.session_state.update({"autenticado":True, "uid":res[0], "uname":res[1], "rol":res[2], "pres":res[4]})
+                st.session_state.update({"autenticado":True, "uid":res[0], "uname":res[1], "rol":res[2], "pres":res[3]})
                 st.rerun()
-            else: st.error("Error de acceso")
     st.stop()
 
-# --- 5. INTERFAZ Y NAVEGACIÓN ---
+# --- 5. PANEL DE CONTROL (SIDEBAR) ---
 tc = obtener_tc()
-
 with st.sidebar:
-    st.title(f"Hola, {st.session_state.uname}")
-    # MODO PRIVACIDAD (EL OJO)
-    if st.button("👁️ Ocultar/Mostrar Montos"):
-        st.session_state.ocultar_montos = not st.session_state.ocultar_montos
-        st.rerun()
-    
-    st.markdown(f"*Dólar BCCR:* ₡{tc['venta']}")
-    menu = st.radio("Módulos", ["🏠 Inicio", "💸 Sinpe/Gastos", "💱 Conversor", "⚙️ Admin"])
-    
-    # FILTRO DE MES (Para que la app sea veloz)
-    mes_filtro = st.selectbox("Mes de Consulta", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=datetime.now().month - 1)
-    
+    st.title(f"👑 {st.session_state.uname}")
+    st.button("👁️ Privacidad", on_click=lambda: st.session_state.update({"ver_montos": not st.session_state.ver_montos}))
+    menu = st.radio("Navegación", ["📊 Dashboard IA", "💸 Registro Rápido", "🎯 Metas Ahorro", "⚙️ Ajustes"])
+    st.markdown(f"--- \n *Dólar:* ₡{tc['venta']}")
     if st.button("Cerrar Sesión"):
         st.session_state.autenticado = False
         st.rerun()
 
-# --- MÓDULO INICIO (DASHBOARD) ---
-if menu == "🏠 Inicio":
-    st.header(f"Resumen de {mes_filtro}")
+# --- MÓDULO DASHBOARD CON IA ---
+if menu == "📊 Dashboard IA":
+    st.header("Análisis Predictivo")
     
-    # Anuncios Automáticos (Basados en fecha y presupuesto)
     df = pd.read_sql(f"SELECT * FROM movimientos WHERE usuario_id={st.session_state.uid}", conn)
-    gas_total = df[df['tipo']=='Gasto']['monto'].sum() if not df.empty else 0
-    
-    if datetime.now().day in [15, 30]:
-        st.markdown('<div class="anuncio-card">💰 <b>Día de Pago:</b> ¡Recuerda priorizar tus deudas y ahorros antes de gastar!</div>', unsafe_allow_html=True)
-    
-    # Métricas Principales con Filtro de Seguridad
     ing = df[df['tipo']=='Ingreso']['monto'].sum() if not df.empty else 0
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Ingresos", formato_dinero(ing, st.session_state.ocultar_montos))
-    c2.metric("Gastos", formato_dinero(gas_total, st.session_state.ocultar_montos), delta_color="inverse")
-    c3.metric("Disponible", formato_dinero(ing - gas_total, st.session_state.ocultar_montos))
-
-    # Radar de Presupuesto
-    st.write(f"*Radar de Presupuesto (Límite: ₡{st.session_state.pres:,.0f})*")
-    porc = min((gas_total / st.session_state.pres if st.session_state.pres > 0 else 0), 1.0)
-    st.progress(porc)
+    gas = df[df['tipo']=='Gasto']['monto'].sum() if not df.empty else 0
+    bal = ing - gas
     
-    if not df.empty:
-        fig = px.pie(df[df['tipo']=='Gasto'], values='monto', names='cat', hole=.4, title="Distribución de Gastos")
+    # Métrica de Privacidad
+    m_ing = f"₡{ing:,.0f}" if st.session_state.ver_montos else "₡ *"
+    m_gas = f"₡{gas:,.0f}" if st.session_state.ver_montos else "₡ *"
+    m_bal = f"₡{bal:,.0f}" if st.session_state.ver_montos else "₡ *"
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Ingresos", m_ing)
+    c2.metric("Gastos", m_gas, delta="-Presupuesto", delta_color="inverse")
+    c3.metric("Saldo Real", m_bal)
+
+    # --- PREDICCIÓN INTELIGENTE ---
+    if gas > 0:
+        dias_mes = 30
+        dia_actual = datetime.now().day
+        gasto_diario = gas / dia_actual
+        proyeccion = gasto_diario * dias_mes
+        
+        st.markdown(f'<div class="prediction-box">🤖 <b>Predicción GeZo:</b> Al ritmo actual, terminarás el mes gastando <b>₡{proyeccion:,.0f}</b>.</div>', unsafe_allow_html=True)
+        if proyeccion > st.session_state.pres:
+            st.error(f"⚠️ ¡Cuidado! Superarás tu presupuesto por ₡{proyeccion - st.session_state.pres:,.0f}")
+
+    # Gráfico de Gastos
+    if not df.empty and gas > 0:
+        fig = px.bar(df[df['tipo']=='Gasto'], x='cat', y='monto', color='cat', title="Gastos por Categoría", template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
 
-# --- MÓDULO MOVIMIENTOS (CON BOTÓN SINPE) ---
-elif menu == "💸 Sinpe/Gastos":
-    st.header("Registrar Movimiento")
-    tipo_reg = st.radio("Tipo de Registro", ["Gasto Normal", "Pago SINPE 📱", "Ingreso"], horizontal=True)
+# --- MÓDULO REGISTRO RÁPIDO (TIPO IPHONE) ---
+elif menu == "💸 Registro Rápido":
+    st.header("Nuevo Movimiento")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.button("📱 SINPE Rápido", on_click=lambda: st.toast("Modo SINPE Activo"))
     
     with st.form("reg"):
-        desc = st.text_input("Detalle / Persona")
+        desc = st.text_input("¿En qué gastaste?")
         monto = st.number_input("Monto (₡)", min_value=0)
-        cat = st.selectbox("Categoría", ["Comida", "Casa", "Servicios", "Transporte", "Diversión", "Salud", "Otros"])
-        if st.form_submit_button("GUARDAR AHORA"):
+        moneda = st.radio("Moneda", ["₡ Colones", "$ Dólares"], horizontal=True)
+        cat = st.selectbox("Categoría", ["Comida", "Super", "Sinpe", "Ocio", "Transporte", "Casa", "Salario"])
+        tipo = st.selectbox("Tipo", ["Gasto", "Ingreso"])
+        
+        if st.form_submit_button("REGISTRAR AHORA"):
+            monto_final = monto if "₡" in moneda else monto * tc['venta']
             c.execute("INSERT INTO movimientos (usuario_id, fecha, desc, monto, tipo, cat) VALUES (?,?,?,?,?,?)",
-                      (st.session_state.uid, datetime.now().strftime("%Y-%m-%d"), desc, monto, "Gasto" if "Ingreso" not in tipo_reg else "Ingreso", cat))
+                      (st.session_state.uid, datetime.now().strftime("%Y-%m-%d"), desc, monto_final, tipo, cat))
             conn.commit()
-            st.success("¡Registro guardado con éxito! 🚀")
+            st.balloons()
+            st.success("Guardado en la nube ☁️")
 
-# --- MÓDULO CONVERSOR ---
-elif menu == "💱 Conversor":
-    st.header("Calculadora de Dólares")
-    usd = st.number_input("Dólares ($)", min_value=0.0)
-    st.subheader(f"Equivale a: ₡{usd * tc['venta']:,.2f}")
-    st.write(f"Tipo de cambio usado: ₡{tc['venta']}")
+# --- MÓDULO METAS DE AHORRO ---
+elif menu == "🎯 Metas Ahorro":
+    st.header("Tus Metas")
+    with st.expander("Añadir Nueva Meta"):
+        n_meta = st.text_input("Nombre de la meta (ej. Marchamo)")
+        obj_meta = st.number_input("Monto Objetivo (₡)", min_value=0)
+        if st.button("Crear Meta"):
+            c.execute("INSERT INTO metas (usuario_id, nombre, objetivo, actual) VALUES (?,?,?,?)", (st.session_state.uid, n_meta, obj_meta, 0))
+            conn.commit()
+            st.rerun()
+    
+    metas_df = pd.read_sql(f"SELECT * FROM metas WHERE usuario_id={st.session_state.uid}", conn)
+    for i, r in metas_df.iterrows():
+        st.write(f"*{r['nombre']}*")
+        prog = (r['actual'] / r['objetivo']) if r['objetivo'] > 0 else 0
+        st.progress(prog)
+        st.write(f"₡{r['actual']:,.0f} de ₡{r['objetivo']:,.0f} ({prog*100:.1f}%)")
 
 # --- MÓDULO ADMIN ---
-elif menu == "⚙️ Admin" and st.session_state.rol == 'admin':
-    st.header("Control de Usuarios")
-    with st.form("admin"):
-        nu, np = st.text_input("Usuario"), st.text_input("Clave")
-        pl = st.selectbox("Plan", ["Semanal", "Mensual", "Semestral", "Anual", "Eterno"])
-        if st.form_submit_button("ACTIVAR"):
-            dias = {"Semanal":7, "Mensual":30, "Semestral":180, "Anual":365, "Eterno":36500}[pl]
-            fv = (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
-            c.execute("INSERT INTO usuarios (nombre, clave, expira, rol) VALUES (?,?,?,?)", (nu, np, fv, 'usuario'))
-            conn.commit()
-            st.success("Usuario creado")
+elif menu == "⚙️ Ajustes" and st.session_state.rol == 'admin':
+    st.header("Admin: Gestión de Usuarios")
+    nu = st.text_input("Nombre Usuario")
+    np = st.text_input("Contraseña")
+    pres_u = st.number_input("Presupuesto Mensual", value=250000)
+    if st.button("CREAR USUARIO PRO"):
+        fv = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
+        c.execute("INSERT INTO usuarios (nombre, clave, expira, rol, presupuesto) VALUES (?,?,?,?,?)", (nu, np, fv, 'usuario', pres_u))
+        conn.commit()
+        st.success("Usuario creado con éxito")
