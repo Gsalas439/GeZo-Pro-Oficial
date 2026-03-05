@@ -29,7 +29,6 @@ st.markdown("""
         padding: 15px; border-radius: 12px; text-align: center; display: block; 
         text-decoration: none; font-weight: bold; margin-top: 10px; transition: 0.3s;
     }
-    .bank-btn:hover { background: #00c6ff; color: #000 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -47,28 +46,12 @@ def inicializar_db():
     c.execute("CREATE TABLE IF NOT EXISTS movimientos (id SERIAL PRIMARY KEY, usuario_id INTEGER, fecha DATE, descrip TEXT, monto DECIMAL, tipo TEXT, cat TEXT, vence DATE)")
     c.execute("CREATE TABLE IF NOT EXISTS metas (id SERIAL PRIMARY KEY, usuario_id INTEGER, nombre TEXT, objetivo DECIMAL, actual DECIMAL DEFAULT 0)")
     c.execute("CREATE TABLE IF NOT EXISTS deudas (id SERIAL PRIMARY KEY, usuario_id INTEGER, nombre TEXT, monto_total DECIMAL, pagado DECIMAL DEFAULT 0, tipo_registro TEXT, fecha_inicio DATE, fecha_vence DATE)")
-    # Nueva tabla para agenda de contactos interna
     c.execute("CREATE TABLE IF NOT EXISTS contactos (id SERIAL PRIMARY KEY, usuario_id INTEGER, nombre TEXT, telefono TEXT)")
-    
-    try:
-        c.execute("ALTER TABLE deudas ADD COLUMN IF NOT EXISTS fecha_inicio DATE")
-        c.execute("ALTER TABLE deudas ADD COLUMN IF NOT EXISTS fecha_vence DATE")
-    except: conn.rollback()
-    
-    c.execute("SELECT * FROM usuarios WHERE nombre='admin'")
-    if not c.fetchone():
-        c.execute("INSERT INTO usuarios (nombre, clave, expira, rol, plan, precio) VALUES (%s,%s,%s,%s,%s,%s)", ('admin', 'admin123', '2099-12-31', 'admin', 'Master', '0'))
     conn.commit(); c.close()
 
 inicializar_db()
 
-# --- 3. FUNCIONES AUXILIARES ---
-def limpiar_texto(t):
-    acentos = {"á":"a","é":"e","í":"i","ó":"o","ú":"u","ñ":"n","₡":"CRC "}
-    for k, v in acentos.items(): t = str(t).replace(k, v)
-    return t.encode('latin-1', 'ignore').decode('latin-1')
-
-# --- 4. LOGIN ---
+# --- 3. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state.autenticado = False
 if not st.session_state.autenticado:
     st.title("💎 GeZo Elite Pro Access")
@@ -85,13 +68,13 @@ if not st.session_state.autenticado:
             c.close()
     st.stop()
 
-# --- 5. MENÚ ---
+# --- 4. MENÚ ---
 with st.sidebar:
     st.markdown(f"### 👑 {st.session_state.uname}")
     menu = st.radio("NAVEGACIÓN", ["📊 Dashboard", "💸 Nuevo Registro", "📜 Historial / Borrar", "🎯 Metas", "🏦 Deudas y Cobros", "📱 SINPE Rápido", "⚙️ Admin"])
     if st.button("CERRAR SESIÓN"): st.session_state.autenticado = False; st.rerun()
 
-# --- 6. REGISTRO ---
+# --- 5. REGISTRO ---
 if menu == "💸 Nuevo Registro":
     st.header("Entradas y Salidas")
     lista_g = ["⚖️ Pensión Alimentaria", "⚡ Recibo de Luz", "💧 Recibo de Agua", "🏠 Alquiler/Hipoteca", "🛒 Súper/Comida", "📱 Plan Celular/Net", "🏦 Cuota Préstamo", "🚗 Gasolina/Transporte", "📦 Otros Gastos"]
@@ -105,52 +88,60 @@ if menu == "💸 Nuevo Registro":
             c.execute("INSERT INTO movimientos (usuario_id, fecha, descrip, monto, tipo, cat, vence) VALUES (%s,%s,%s,%s,%s,%s,%s)", (st.session_state.uid, datetime.now().date(), f"{cat}: {det}", monto, tipo, cat, fecha))
             conn.commit(); c.close(); st.success("Guardado."); st.rerun()
 
-# --- 7. MÓDULO: SINPE RÁPIDO CON AGENDA PROPIA ---
-elif menu == "📱 SINPE Rápido":
-    st.header("SINPE Móvil Express")
+# --- 6. MÓDULO: METAS (CORREGIDO Y POTENCIADO) ---
+elif menu == "🎯 Metas":
+    st.header("Objetivos de Ahorro y Proyectos")
     
-    col_a, col_b = st.columns([2, 1])
-    
-    with col_b:
-        st.subheader("👥 Mi Agenda")
-        with st.expander("Añadir Contacto"):
-            with st.form("add_cont"):
-                nc = st.text_input("Nombre"); tc = st.text_input("Teléfono")
-                if st.form_submit_button("Guardar Contacto"):
+    # Formulario para crear meta
+    with st.expander("➕ CREAR NUEVA META"):
+        with st.form("form_meta"):
+            col1, col2 = st.columns(2)
+            nombre_meta = col1.text_input("¿Para qué es el ahorro?", placeholder="Ej: Viaje, Carro, Fondo de Emergencia")
+            monto_meta = col2.number_input("Monto Objetivo (₡)", min_value=0.0, step=5000.0)
+            if st.form_submit_button("CREAR PROYECTO"):
+                if nombre_meta and monto_meta > 0:
                     conn = get_connection(); c = conn.cursor()
-                    c.execute("INSERT INTO contactos (usuario_id, nombre, telefono) VALUES (%s,%s,%s)", (st.session_state.uid, nc, tc))
-                    conn.commit(); c.close(); st.success("Guardado"); st.rerun()
-        
-        df_cont = pd.read_sql(f"SELECT * FROM contactos WHERE usuario_id={st.session_state.uid}", get_connection())
-        if not df_cont.empty:
-            for _, r in df_cont.iterrows():
-                col_c1, col_c2 = st.columns([3, 1])
-                col_c1.write(f"👤 {r['nombre']} ({r['telefono']})")
-                if col_c2.button("🗑️", key=f"del_c_{r['id']}"):
-                    conn = get_connection(); c = conn.cursor(); c.execute(f"DELETE FROM contactos WHERE id={r['id']}"); conn.commit(); c.close(); st.rerun()
-        else: st.caption("No tienes contactos guardados.")
+                    c.execute("INSERT INTO metas (usuario_id, nombre, objetivo, actual) VALUES (%s,%s,%s,%s)", (st.session_state.uid, nombre_meta, monto_meta, 0))
+                    conn.commit(); c.close(); st.success("Meta creada!"); st.rerun()
+                else: st.warning("Completa los datos.")
 
-    with col_a:
-        st.subheader("🚀 Realizar Envío")
-        # Aquí "simulamos" el acceso a contactos usando la tabla interna
-        opciones_agenda = ["Escribir número manualmente"] + [f"{r['nombre']} - {r['telefono']}" for _, r in df_cont.iterrows()]
-        seleccion = st.selectbox("Seleccionar de mis contactos:", opciones_agenda)
-        
-        num_final = ""
-        if seleccion == "Escribir número manualmente":
-            num_final = st.text_input("Número de Teléfono (8 dígitos):", placeholder="88888888")
-        else:
-            num_final = seleccion.split(" - ")[1]
-            st.info(f"Número seleccionado: {num_final}")
+    # Listado de Metas
+    df_metas = pd.read_sql(f"SELECT * FROM metas WHERE usuario_id={st.session_state.uid}", get_connection())
+    
+    if not df_metas.empty:
+        for _, r in df_metas.iterrows():
+            objetivo = float(r['objetivo'])
+            actual = float(r['actual'])
+            progreso = (actual / objetivo) if objetivo > 0 else 0
             
-        monto_s = st.number_input("Monto a enviar (₡):", min_value=0.0, step=100.0)
-        
-        st.markdown(f"### Pasos para enviar:")
-        st.write(f"1. Copia este número: `{num_final}`")
-        st.write(f"2. Haz clic en el botón de abajo para abrir tu App bancaria.")
-        st.markdown('<a href="https://www.google.com" target="_blank" class="bank-btn">🏦 ABRIR APP DEL BANCO</a>', unsafe_allow_html=True)
+            with st.container():
+                st.markdown(f'<div class="user-card">', unsafe_allow_html=True)
+                c1, c2 = st.columns([3, 1])
+                c1.subheader(f"🎯 {r['nombre']}")
+                c2.write(f"**{progreso*100:.1f}% Completado**")
+                
+                # Barra de progreso visual
+                st.progress(min(progreso, 1.0))
+                
+                st.write(f"Ahorrado: **₡{actual:,.0f}** de **₡{objetivo:,.0f}**")
+                
+                # Acciones para la meta
+                col_a, col_b, col_c = st.columns([2, 2, 1])
+                monto_abono = col_a.number_input("Monto a sumar:", min_value=0.0, key=f"abono_m_{r['id']}")
+                if col_b.button("SUMAR AL AHORRO", key=f"btn_m_{r['id']}"):
+                    conn = get_connection(); c = conn.cursor()
+                    c.execute("UPDATE metas SET actual = actual + %s WHERE id = %s", (monto_abono, r['id']))
+                    conn.commit(); c.close(); st.success("¡Ahorro actualizado!"); time.sleep(0.5); st.rerun()
+                
+                if col_c.button("🗑️", key=f"del_m_{r['id']}"):
+                    conn = get_connection(); c = conn.cursor(); c.execute(f"DELETE FROM metas WHERE id={r['id']}"); conn.commit(); c.close(); st.rerun()
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+                st.divider()
+    else:
+        st.info("Aún no tienes metas registradas. ¡Empieza creando una arriba!")
 
-# --- 8. DEUDAS Y COBROS ---
+# --- 7. DEUDAS Y COBROS ---
 elif menu == "🏦 Deudas y Cobros":
     st.header("Gestión de Compromisos")
     t1, t2 = st.tabs(["💸 Deudas", "💰 Cobros"])
@@ -167,7 +158,7 @@ elif menu == "🏦 Deudas y Cobros":
             st.markdown(f'<div class="user-card"><strong>{r["nombre"]}</strong> | Vence: {r["fecha_vence"]}<br>Pendiente: ₡{saldo:,.0f}</div>', unsafe_allow_html=True)
             col_a1, col_a2 = st.columns(2)
             ab = col_a1.number_input("Abono:", min_value=0.0, key=f"ab_{r['id']}")
-            if col_a2.button("ABONAR", key=f"btn_{r['id']}"):
+            if col_a2.button("ABONAR", key=f"btn_d_{r['id']}"):
                 conn = get_connection(); c = conn.cursor(); c.execute("UPDATE deudas SET pagado = pagado + %s WHERE id = %s", (ab, r['id'])); conn.commit(); c.close(); st.rerun()
 
     with t2:
@@ -186,7 +177,7 @@ elif menu == "🏦 Deudas y Cobros":
             if col_b2.button("RECIBIR", key=f"btnc_{r['id']}"):
                 conn = get_connection(); c = conn.cursor(); c.execute("UPDATE deudas SET pagado = pagado + %s WHERE id = %s", (abc, r['id'])); conn.commit(); c.close(); st.rerun()
 
-# --- 9. OTROS MÓDULOS ---
+# --- 8. DASHBOARD Y OTROS ---
 elif menu == "📊 Dashboard":
     st.header("Situación Financiera")
     df = pd.read_sql(f"SELECT * FROM movimientos WHERE usuario_id={st.session_state.uid}", get_connection())
@@ -202,9 +193,21 @@ elif menu == "📜 Historial / Borrar":
         c1.write("🟢" if row['tipo'] == "Ingreso" else "🔴")
         c2.write(f"**{row['cat']}**\n_{row['vence']}_")
         c3.write(f"₡{row['monto']:,.0f}")
-        if c4.button("🗑️", key=f"del_m_{row['id']}"):
+        if c4.button("🗑️", key=f"del_h_{row['id']}"):
             conn = get_connection(); c = conn.cursor(); c.execute(f"DELETE FROM movimientos WHERE id={row['id']}"); conn.commit(); c.close(); st.rerun()
         st.divider()
+
+elif menu == "📱 SINPE Rápido":
+    st.header("SINPE Móvil Express")
+    df_cont = pd.read_sql(f"SELECT * FROM contactos WHERE usuario_id={st.session_state.uid}", get_connection())
+    with st.expander("👤 Gestionar Contactos"):
+        with st.form("c"):
+            n = st.text_input("Nombre"); t = st.text_input("Teléfono")
+            if st.form_submit_button("Guardar"):
+                conn = get_connection(); c = conn.cursor(); c.execute("INSERT INTO contactos (usuario_id, nombre, telefono) VALUES (%s,%s,%s)", (st.session_state.uid, n, t)); conn.commit(); c.close(); st.rerun()
+    sel = st.selectbox("Contacto:", ["Manual"] + [f"{r['nombre']} ({r['telefono']})" for _, r in df_cont.iterrows()])
+    num = st.text_input("Número:") if sel == "Manual" else sel.split("(")[1].replace(")", "")
+    st.markdown(f'<a href="https://www.google.com" target="_blank" class="bank-btn">🏦 ABRIR BANCO PARA: {num}</a>', unsafe_allow_html=True)
 
 elif menu == "⚙️ Admin" and st.session_state.rol == 'admin':
     with st.form("f_admin"):
