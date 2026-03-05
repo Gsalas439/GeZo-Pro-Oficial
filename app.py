@@ -103,7 +103,7 @@ st.markdown("""
 def get_connection():
     try:
         # Intento de conexión con tiempo de espera extendido para evitar "pantalla negra"
-        return psycopg2.connect(st.secrets["DB_URL"], connect_timeout=25)
+        return psycopg2.connect(st.secrets["DB_URL"], connect_timeout=60)
     except Exception as e:
         st.error("🚀 El servidor GeZo está tardando en responder. Por favor, refresque la página.")
         st.stop()
