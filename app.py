@@ -7,7 +7,7 @@ from fpdf import FPDF
 import requests
 import io
 
-# --- 1. ESTÉTICA Y CONFIGURACIÓN ---
+# --- 1. CONFIGURACIÓN Y ESTÉTICA ---
 st.set_page_config(page_title="GeZo Elite Pro", page_icon="💎", layout="wide")
 
 st.markdown("""
@@ -32,7 +32,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. BASE DE DATOS ---
+# --- 2. MOTOR DE DATOS ---
 def get_connection():
     return psycopg2.connect(st.secrets["DB_URL"])
 
@@ -45,8 +45,6 @@ def inicializar_db():
                  (id SERIAL PRIMARY KEY, usuario_id INTEGER, fecha DATE, descrip TEXT, monto DECIMAL, tipo TEXT, cat TEXT, vence DATE)''')
     c.execute('''CREATE TABLE IF NOT EXISTS metas 
                  (id SERIAL PRIMARY KEY, usuario_id INTEGER, nombre TEXT, objetivo DECIMAL, actual DECIMAL DEFAULT 0)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS deudas 
-                 (id SERIAL PRIMARY KEY, usuario_id INTEGER, nombre TEXT, monto_total DECIMAL, pagado DECIMAL DEFAULT 0, tipo TEXT)''')
     c.execute("SELECT * FROM usuarios WHERE nombre='admin'")
     if not c.fetchone():
         c.execute("INSERT INTO usuarios (nombre, clave, expira, rol, plan, precio) VALUES (%s,%s,%s,%s,%s,%s)", 
@@ -54,35 +52,50 @@ def inicializar_db():
     conn.commit(); c.close(); conn.close()
 
 try: inicializar_db()
-except Exception as e: st.error(f"Error de DB: {e}"); st.stop()
+except: st.error("Error de DB."); st.stop()
 
-# --- 3. FUNCIONES ESPECIALES (PDF SIN ERRORES) ---
-def limpiar_texto(texto):
-    # Reemplaza caracteres que rompen el PDF estándar
-    replacements = {'á':'a', 'é':'e', 'í':'i', 'ó':'o', 'ú':'u', 'ñ':'n', '₡':'CRC '}
-    for k, v in replacements.items():
-        texto = texto.replace(k, v)
-    return texto.encode('latin-1', 'ignore').decode('latin-1')
+# --- 3. FUNCIONES ESPECIALES (REPARACIÓN DE UNICODE) ---
+def corregir_texto(texto):
+    """Limpia el texto de tildes y símbolos para evitar el error Unicode en FPDF."""
+    if not texto: return ""
+    # Mapeo de caracteres problemáticos
+    remplazos = {
+        "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u",
+        "Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U",
+        "ñ": "n", "Ñ": "N", "₡": "CRC ", "ü": "u"
+    }
+    for original, nuevo in remplazos.items():
+        texto = texto.replace(original, nuevo)
+    # Forzar a latin-1 ignorando lo que sobre
+    return str(texto).encode('latin-1', 'ignore').decode('latin-1')
 
-def generar_pdf_pro(nombre, plan, monto, fecha):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_fill_color(11, 14, 20); pdf.rect(0, 0, 210, 297, 'F')
-    pdf.set_text_color(255, 255, 255); pdf.set_font("Arial", 'B', 24)
-    pdf.cell(200, 30, "GEZO ELITE PRO 💎", ln=True, align='C')
-    pdf.ln(10); pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, "COMPROBANTE DE PAGO", ln=True, align='C')
-    pdf.ln(20); pdf.set_font("Arial", '', 14)
-    pdf.cell(200, 10, f"Cliente: {limpiar_texto(nombre).upper()}", ln=True)
-    pdf.cell(200, 10, f"Plan: {limpiar_texto(plan)}", ln=True)
-    pdf.cell(200, 10, f"Monto: {limpiar_texto(str(monto))}", ln=True)
-    pdf.cell(200, 10, f"Vence: {fecha}", ln=True)
-    pdf.ln(30); pdf.set_font("Arial", 'I', 10)
-    pdf.cell(200, 10, "Gracias por confiar en GeZo. Pura Vida.", ln=True, align='C')
-    return pdf.output(dest='S').encode('latin-1', 'replace')
+def generar_pdf_blindado(nombre, plan, monto, fecha):
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_fill_color(11, 14, 20); pdf.rect(0, 0, 210, 297, 'F')
+        pdf.set_text_color(255, 255, 255); pdf.set_font("Arial", 'B', 24)
+        pdf.cell(200, 30, corregir_texto("GEZO ELITE PRO 💎"), ln=True, align='C')
+        
+        pdf.ln(10); pdf.set_font("Arial", 'B', 16)
+        pdf.cell(200, 10, corregir_texto("RECIBO DE PAGO OFICIAL"), ln=True, align='C')
+        
+        pdf.ln(20); pdf.set_font("Arial", '', 14)
+        pdf.cell(200, 10, f"Cliente: {corregir_texto(nombre).upper()}", ln=True)
+        pdf.cell(200, 10, f"Plan: {corregir_texto(plan)}", ln=True)
+        pdf.cell(200, 10, f"Monto: {corregir_texto(str(monto))}", ln=True)
+        pdf.cell(200, 10, f"Vence: {fecha}", ln=True)
+        
+        pdf.ln(40); pdf.set_font("Arial", 'I', 10)
+        pdf.cell(200, 10, corregir_texto("Gracias por ser parte de la elite financiera."), ln=True, align='C')
+        
+        # El secreto está en el errors='replace' para que no explote
+        return pdf.output(dest='S').encode('latin-1', errors='replace')
+    except Exception as e:
+        return f"Error generando PDF: {str(e)}".encode('utf-8')
 
 def get_tipo_cambio():
-    return {"compra": 511.20, "venta": 520.45}
+    return {"compra": 510.80, "venta": 519.95}
 
 # --- 4. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state.autenticado = False
@@ -109,102 +122,87 @@ with st.sidebar:
     tc = get_tipo_cambio()
     st.metric("💵 Dólar Venta", f"₡{tc['venta']}")
     st.divider()
-    menu = st.radio("Secciones:", ["📊 Dashboard IA", "💸 Registrar Cuentas", "📱 SINPE Rápido", "⚖️ Pensión y Aguinaldo", "🤝 Deudas y Metas", "💱 Conversor", "⚙️ Admin"])
+    menu = st.radio("Menú:", ["📊 Dashboard IA", "💸 Registrar Cuentas", "📱 SINPE Rápido", "⚖️ Pensión y Aguinaldo", "⚙️ Admin"])
     if st.button("Cerrar Sesión"): st.session_state.autenticado = False; st.rerun()
 
-# --- 6. DASHBOARD CON COACH HÍBRIDO ---
+# --- 6. DASHBOARD + COACH IA ---
 if menu == "📊 Dashboard IA":
-    st.header("Coach Financiero GeZo 🤖")
+    st.header("Análisis GeZo IA 🤖")
     df = pd.read_sql(f"SELECT * FROM movimientos WHERE usuario_id={st.session_state.uid}", get_connection())
     ing = float(df[df['tipo']=='Ingreso']['monto'].sum()) if not df.empty else 0
     gas = float(df[df['tipo']=='Gasto']['monto'].sum()) if not df.empty else 0
     bal = ing - gas
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("Ingresos", f"₡{ing:,.0f}"); c2.metric("Gastos", f"₡{gas:,.0f}", delta_color="inverse"); c3.metric("Saldo", f"₡{bal:,.0f}")
+    c1.metric("Ingresos", f"₡{ing:,.0f}"); c2.metric("Gastos", f"₡{gas:,.0f}"); c3.metric("Saldo", f"₡{bal:,.0f}")
 
     if ing > 0:
-        porc = (gas / ing) * 100
+        porc = (gas/ing)*100
         if bal < 0:
-            st.markdown(f'<div class="coach-box rojo"><h3>🚨 ¡ESTÁS EN ROJO!</h3><p>Gastaste <b>₡{abs(bal):,.0f}</b> extra. ¿En qué estás pensando? Dejá de gastar en tonteras o la deuda te va a comer. Cortá gastos hormiga hoy mismo.</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="coach-box rojo"><h3>🚨 ¡DANGER! NÚMEROS ROJOS</h3><p>Gastaste <b>₡{abs(bal):,.0f}</b> de más. ¡Dejá de vivir como millonario con plata prestada! Cortá los gastos hoy.</p></div>', unsafe_allow_html=True)
         elif porc > 80:
-            st.markdown(f'<div class="coach-box alerta"><h3>🧐 TENÉ CUIDADO</h3><p>Gastar el <b>{porc:.1f}%</b> es peligroso. Estás a un paso del abismo. ¡Guardá el 10% de lo que te queda antes de que desaparezca!</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="coach-box alerta"><h3>🧐 CUIDADO</h3><p>Estás al límite ({porc:.1f}%). Cualquier imprevisto te manda al hueco. ¡Ahorrá ya!</p></div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="coach-box verde"><h3>💎 ¡SOS UN CRACK!</h3><p>Gastás el <b>{porc:.1f}%</b>. Te sobran <b>₡{bal:,.0f}</b>. Pura vida, seguí así y meté ese excedente en una meta de inversión.</p></div>', unsafe_allow_html=True)
-    
-    if not df.empty:
-        st.plotly_chart(px.pie(df[df['tipo']=='Gasto'], values='monto', names='cat', hole=.4, template="plotly_dark"))
+            st.markdown(f'<div class="coach-box verde"><h3>💎 EXCELENTE TRABAJO</h3><p>Vas volando. Tenés <b>₡{bal:,.0f}</b> libres. ¡Pura vida! Invertí eso y hacelo crecer.</p></div>', unsafe_allow_html=True)
 
-# --- 7. REGISTRO DE CUENTAS + FECHA PAGO + ALERTAS ---
+# --- 7. REGISTRO DE CUENTAS (CATEGORÍAS COSTA RICA) ---
 elif menu == "💸 Registrar Cuentas":
-    st.header("Cuentas y Alertas de Pago")
-    cats_g = ["⚖️ Pensión Alimentaria", "⚡ Recibo de Luz", "💧 Recibo de Agua", "📱 Plan Telefónico", "🏠 Alquiler/Hipoteca", "🏦 Préstamo", "🎓 Educación", "💡 Gastos Hormiga", "📦 Otros"]
-    cats_i = ["💵 Salario Mensual", "📱 SINPE Recibido", "💰 Negocio", "📈 Inversiones", "💸 Remesas", "📦 Otros"]
+    st.header("Registrar Gastos y Cuentas")
+    cats_g = ["⚖️ Pensión Alimentaria", "⚡ Recibo de Luz", "💧 Recibo de Agua", "📱 Plan Telefónico", "🏠 Alquiler/Hipoteca", "🏦 Préstamo", "🛒 Supermercado", "💡 Gastos Hormiga", "📦 Otros"]
+    cats_i = ["💵 Salario", "📱 SINPE Recibido", "💰 Ventas", "💸 Remesas", "📦 Otros"]
 
-    with st.form("reg_cuentas"):
-        tipo = st.radio("Movimiento:", ["Gasto", "Ingreso"], horizontal=True)
+    with st.form("reg"):
+        tipo = st.radio("Tipo:", ["Gasto", "Ingreso"], horizontal=True)
         cat = st.selectbox("Categoría:", cats_g if tipo == "Gasto" else cats_i)
         monto = st.number_input("Monto (₡)", min_value=0.0)
-        vence = st.date_input("Fecha de Pago/Vencimiento", datetime.now())
-        alerta = st.checkbox("🔔 Alerta automática (1 día antes)")
+        vence = st.date_input("Fecha de Vencimiento", datetime.now())
+        alerta = st.checkbox("Activar alerta (1 día antes)")
         
-        if st.form_submit_button("GUARDAR REGISTRO"):
+        if st.form_submit_button("GUARDAR"):
             conn = get_connection(); c = conn.cursor()
             c.execute("INSERT INTO movimientos (usuario_id, fecha, descrip, monto, tipo, cat, vence) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                      (st.session_state.uid, datetime.now().date(), f"Registro {cat}", monto, tipo, cat, vence))
+                      (st.session_state.uid, datetime.now().date(), f"Registro de {cat}", monto, tipo, cat, vence))
             conn.commit(); c.close(); conn.close()
-            if alerta: st.info(f"📅 Recordatorio: Te avisaremos el {(vence - timedelta(days=1))}.")
-            st.success("✅ Guardado.")
+            if alerta: st.info(f"🔔 Te avisaremos el {vence - timedelta(days=1)}")
+            st.success("✅ ¡Listo!")
 
-# --- 8. ADMIN (PDF, WHATSAPP, BORRADO) ---
+# --- 8. ADMIN (CON PLAN SEMANA GRATIS) ---
 elif menu == "⚙️ Admin" and st.session_state.rol == 'admin':
-    st.header("Gestión de Clientes GeZo")
-    conf = {"Mensual":30, "Trimestral":90, "Semestral":180, "Anual":365, "Eterno":36500}
-    prec = {"Mensual":"₡5,000", "Trimestral":"₡13,500", "Semestral":"₡25,000", "Anual":"₡45,000", "Eterno":"₡100,000"}
+    st.header("Control de Membresías")
+    # PLANES INCLUYENDO SEMANA GRATIS
+    conf = {"Semana Gratis":7, "Mensual":30, "Trimestral":90, "Semestral":180, "Anual":365, "Eterno":36500}
+    prec = {"Semana Gratis":"₡0", "Mensual":"₡5,000", "Trimestral":"₡13,500", "Semestral":"₡25,000", "Anual":"₡45,000", "Eterno":"₡100,000"}
     
-    with st.expander("➕ Nuevo Cliente"):
-        un = st.text_input("Usuario"); pn = st.text_input("Clave"); ps = st.selectbox("Plan", list(conf.keys()))
-        if st.button("CREAR"):
+    with st.expander("➕ Activar Nuevo Cliente"):
+        un = st.text_input("Usuario"); pn = st.text_input("Clave"); ps = st.selectbox("Elegir Plan", list(conf.keys()))
+        if st.button("ACTIVAR CUENTA"):
             vf = (datetime.now() + timedelta(days=conf[ps])).date()
             conn = get_connection(); c = conn.cursor()
             c.execute("INSERT INTO usuarios (nombre, clave, expira, rol, plan, precio) VALUES (%s,%s,%s,%s,%s,%s)", (un, pn, vf, 'usuario', ps, prec[ps]))
             conn.commit(); c.close(); conn.close(); st.rerun()
 
-    users = pd.read_sql("SELECT * FROM usuarios WHERE rol!='admin'", get_connection())
+    users = pd.read_sql("SELECT * FROM usuarios WHERE rol!='admin' ORDER BY expira DESC", get_connection())
     for i, r in users.iterrows():
         with st.container():
-            st.markdown(f'<div class="user-card"><b>👤 {r["nombre"]}</b> | {r["plan"]} | Vence: {r["expira"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="user-card"><b>👤 {r["nombre"]}</b> | Plan: {r["plan"]} | Vence: {r["expira"]}</div>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
             with c1:
-                p_bin = generar_pdf_pro(r['nombre'], r['plan'], r['precio'], str(r['expira']))
-                st.download_button("📄 Recibo", p_bin, f"Recibo_{r['nombre']}.pdf")
+                pdf_bytes = generar_pdf_blindado(r['nombre'], r['plan'], r['precio'], str(r['expira']))
+                st.download_button("📄 Recibo", pdf_bytes, f"Recibo_{r['nombre']}.pdf")
             with c2:
-                msg = f"Hola {r['nombre']}, tu membresia esta activa hasta {r['expira']}."
+                msg = f"Hola {r['nombre']}, tu plan {r['plan']} esta listo. Vence el {r['expira']}."
                 st.markdown(f'<a href="https://wa.me/50663712477?text={msg.replace(" ","%20")}" target="_blank">📲 WhatsApp</a>', unsafe_allow_html=True)
             with c3:
-                if st.button("🗑️ Borrar", key=f"d_{r['id']}"):
-                    conn = get_connection(); c = conn.cursor()
-                    c.execute(f"DELETE FROM usuarios WHERE id={r['id']}"); conn.commit(); c.close(); conn.close(); st.rerun()
+                if st.button("🗑️ Eliminar", key=f"del_{r['id']}"):
+                    conn = get_connection(); c = conn.cursor(); c.execute(f"DELETE FROM usuarios WHERE id={r['id']}"); conn.commit(); c.close(); conn.close(); st.rerun()
 
-# --- MÓDULOS RESTANTES ---
+# --- MÓDULOS EXTRAS ---
 elif menu == "📱 SINPE Rápido":
-    num = st.text_input("Número"); m = st.number_input("Monto", min_value=0)
-    if st.button("PAGAR Y REGISTRAR"):
-        st.markdown('<a href="https://www.baccredomatic.com/" target="_blank">🚀 Abrir App</a>', unsafe_allow_html=True)
+    st.subheader("Pagos SINPE Móvil")
+    num = st.text_input("Número"); mon = st.number_input("Monto", min_value=0)
+    if st.button("REGISTRAR Y PAGAR"):
+        st.markdown('<a href="https://www.bancobcr.com/" target="_blank">🚀 Abrir App Banco</a>', unsafe_allow_html=True)
 
 elif menu == "⚖️ Pensión y Aguinaldo":
     sal = st.number_input("Salario Bruto", min_value=0.0)
-    st.info(f"Pensión Est.: ₡{(sal*0.35):,.0f} | Aguinaldo: ₡{sal:,.0f}")
-
-elif menu == "🤝 Deudas y Metas":
-    st.header("Metas y Deudas")
-    with st.form("metas"):
-        n_meta = st.text_input("Meta"); o_meta = st.number_input("Objetivo", min_value=1.0)
-        if st.form_submit_button("Crear Meta"):
-            conn = get_connection(); c = conn.cursor()
-            c.execute("INSERT INTO metas (usuario_id, nombre, objetivo) VALUES (%s,%s,%s)", (st.session_state.uid, n_meta, o_meta))
-            conn.commit(); c.close(); conn.close(); st.success("Meta Creada.")
-
-elif menu == "💱 Conversor":
-    m_conv = st.number_input("Monto")
-    st.write(f"Dólares: ${(m_conv/tc['venta']):,.2f} | Colones: ₡{(m_conv*tc['compra']):,.2f}")
+    st.success(f"⚖️ Pensión (35%): ₡{(sal*0.35):,.0f} | 💰 Aguinaldo: ₡{sal:,.0f}")
